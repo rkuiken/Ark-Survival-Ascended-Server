@@ -5005,10 +5005,19 @@ _rcon_status_ready() {
   local instance_name="$1"
   local show_logs_hint="${2:-false}"
   local container_name="asa_${instance_name}"
+  local health_probe="/home/pok/scripts/health_probe.sh"
   local pdb_file="/home/pok/arkserver/ShooterGame/Binaries/Win64/ArkAscendedServer.pdb"
   local update_flag="/home/pok/update.flag"
 
-  if docker exec "$container_name" test -f "$pdb_file"; then
+  # Current images provide an authoritative health probe that checks the server process,
+  # startup marker, API readiness and RCON availability.
+  if docker exec "$container_name" test -x "$health_probe" 2>/dev/null; then
+    if docker exec "$container_name" "$health_probe" >/dev/null 2>&1; then
+      return 0
+    fi
+
+  # Retaining compatibility with older images that do not contain the probe
+  elif docker exec "$container_name" test -f "$pdb_file"; then
     return 0
   fi
 

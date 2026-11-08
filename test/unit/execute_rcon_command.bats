@@ -74,6 +74,9 @@ EOF
     source "$REPO_ROOT/POK-manager.sh"
     validate_instance() { return 0; }
     docker() {
+      if [[ "$*" == *"/home/pok/scripts/health_probe.sh"* ]]; then
+        return 1
+      fi
       if [[ "$*" == *"/home/pok/arkserver/ShooterGame/Binaries/Win64/ArkAscendedServer.pdb"* ]]; then
         return 1
       fi
@@ -90,6 +93,54 @@ EOF
   assert_output --partial "Processing -status command on demo..."
   assert_output --partial "Instance demo has not fully started yet. Please wait a few minutes before checking the status."
   refute_output --partial "unexpected-run"
+}
+
+@test "_rcon_status_ready accepts a healthy image probe without the legacy PDB" {
+  run env REPO_ROOT="$PROJECT_ROOT" BASE_DIR="$BATS_TEST_TMPDIR/rcon-health-ready" POK_MANAGER_TEST_MODE=1 bash -lc '
+    set -e
+    source "$REPO_ROOT/POK-manager.sh"
+    docker() {
+      if [[ "$*" == *"test -x /home/pok/scripts/health_probe.sh"* ]]; then
+        return 0
+      fi
+      if [[ "$*" == *"exec asa_demo /home/pok/scripts/health_probe.sh"* ]]; then
+        return 0
+      fi
+      if [[ "$*" == *"ArkAscendedServer.pdb"* ]]; then
+        return 1
+      fi
+      return 1
+    }
+    _rcon_status_ready demo
+  '
+
+  assert_success
+}
+
+@test "_rcon_status_ready does not fall back to PDB when the health probe is not ready" {
+  run env REPO_ROOT="$PROJECT_ROOT" BASE_DIR="$BATS_TEST_TMPDIR/rcon-health-starting" POK_MANAGER_TEST_MODE=1 bash -lc '
+    set -e
+    source "$REPO_ROOT/POK-manager.sh"
+    docker() {
+      if [[ "$*" == *"test -x /home/pok/scripts/health_probe.sh"* ]]; then
+        return 0
+      fi
+      if [[ "$*" == *"exec asa_demo /home/pok/scripts/health_probe.sh"* ]]; then
+        return 1
+      fi
+      if [[ "$*" == *"ArkAscendedServer.pdb"* ]]; then
+        return 0
+      fi
+      if [[ "$*" == *"/home/pok/update.flag"* ]]; then
+        return 1
+      fi
+      return 1
+    }
+    _rcon_status_ready demo
+  '
+
+  assert_failure
+  assert_output --partial "Instance demo has not fully started yet."
 }
 
 @test "execute_rcon_command routes single-instance status through the Steam-aware helper" {
@@ -420,6 +471,9 @@ Steam error: LoggedInElsewhere. This Steam account is currently logged in on ano
     source "$REPO_ROOT/POK-manager.sh"
     validate_instance() { return 0; }
     docker() {
+      if [[ "$*" == *"/home/pok/scripts/health_probe.sh"* ]]; then
+        return 1
+      fi
       if [[ "$*" == *"/home/pok/arkserver/ShooterGame/Binaries/Win64/ArkAscendedServer.pdb"* ]]; then
         return 1
       fi

@@ -177,3 +177,61 @@ load '../test_helper/project.bash'
     assert_success
     assert_output --partial "unscoped actions verified"
 }
+
+@test "manage service lock helper normalizes rearranged instance arguments" {
+    run env REPO_ROOT="$PROJECT_ROOT" \
+        BASE_DIR="$BATS_TEST_TMPDIR/manager-base" \
+        POK_MANAGER_TEST_MODE=1 bash -lc '
+            set -e
+            source "$REPO_ROOT/POK-manager.sh"
+
+            acquired_scopes=()
+            manager_lock_acquire() {
+                acquired_scopes+=("$1")
+            }
+
+            _manage_service_acquire_instance_lock "-start" "demo" ""
+            _manage_service_acquire_instance_lock "-chat" "Server restarting" "demo"
+            _manage_service_acquire_instance_lock "-custom" "listplayers" "demo"
+            _manage_service_acquire_instance_lock "-API" "TRUE" "demo"
+
+            for scope in "${acquired_scopes[@]}"; do
+                if [ "$scope" != "instance-demo" ]; then
+                    echo "Unexpected lock scope: $scope"
+                    exit 1
+                fi
+            done
+
+            printf "acquired=%s\n" "${#acquired_scopes[@]}"
+        '
+    assert_success
+    assert_output --partial "acquired=4"
+}
+
+@test "manage service lock helper skips unscoped actions and propagates contention" {
+    run env REPO_ROOT="$PROJECT_ROOT" \
+        BASE_DIR="$BATS_TEST_TMPDIR/manager-base" \
+        POK_MANAGER_TEST_MODE=1 bash -lc '
+            set -e
+            source "$REPO_ROOT/POK-manager.sh"
+
+            acquisition_calls=0
+            manager_lock_acquire() {
+                acquisition_calls=$((acquisition_calls + 1))
+                return 1
+            }
+
+            _manage_service_acquire_instance_lock "-status" "demo" ""
+            _manage_service_acquire_instance_lock "-start" "-all" ""
+
+            if _manage_service_acquire_instance_lock "-start" "demo" ""; then
+                echo "Lock contention was not propagated"
+                exit 1
+            fi
+
+            printf "acquisition calls=%s\n" "$acquisition_calls"
+        '
+
+    assert_success
+    assert_output --partial "acquisition calls=1"
+}

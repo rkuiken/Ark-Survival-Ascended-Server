@@ -9009,6 +9009,25 @@ _main_instance_lock_scope_for_action() {
   esac
 }
 
+_manage_service_acquire_instance_lock() {
+  local action="$1"
+  local instance_name="$2"
+  local additional_args_string="${3:-}"
+  local lock_scope
+
+  case "$action" in
+  -chat|-custom|-API)
+    instance_name="$additional_args_string"
+    ;;
+  esac
+
+  if ! lock_scope="$(_main_instance_lock_scope_for_action "$action" "$instance_name")"; then
+    return 0
+  fi
+
+  manager_lock_acquire "$lock_scope"
+}
+
 _main_handle_meta_action() {
   local action="$1"
 

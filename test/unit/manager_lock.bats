@@ -102,3 +102,78 @@ load '../test_helper/project.bash'
     assert_success
     assert_output --partial "lock helper loaded"
 }
+
+@test "main maps single-instance mutating actions to instance lock scopes" {
+    run env REPO_ROOT="$PROJECT_ROOT" \
+        BASE_DIR="$BATS_TEST_TMPDIR/manager-base" \
+        POK_MANAGER_TEST_MODE=1 bash -lc '
+            set -e
+            source "$REPO_ROOT/POK-manager.sh"
+
+            actions=(
+                -start
+                -stop
+                -saveworld
+                -shutdown
+                -restart
+                -chat
+                -custom
+                -backup
+                -delete
+                -restore
+                -clearupdateflag
+                -API
+            )
+
+            for action in "${actions[@]}"; do
+                scope="$(_main_instance_lock_scope_for_action "$action" "demo")"
+                printf "%s=%s\n" "$action" "$scope"
+            done
+        '
+
+    assert_success
+    assert_output --partial "-start=instance-demo"
+    assert_output --partial "-API=instance-demo"
+}
+
+@test "main leaves read-only global and all-instance actions without an instance lock" {
+    run env REPO_ROOT="$PROJECT_ROOT" \
+        BASE_DIR="$BATS_TEST_TMPDIR/manager-base" \
+        POK_MANAGER_TEST_MODE=1 bash -lc '
+            set -e
+            source "$REPO_ROOT/POK-manager.sh"
+
+            actions=(
+                -list
+                -status
+                -logs
+                -version
+                -changelog
+                -setup
+                -create
+                -update
+                -rollback
+                -rename
+                -migrate
+                -edit
+                -fix
+            )
+
+            for action in "${actions[@]}"; do
+                if _main_instance_lock_scope_for_action "$action" "demo"; then
+                    echo "Unexpected instance lock for $action"
+                    exit 1
+                fi
+            done
+
+            if _main_instance_lock_scope_for_action "-start" "-all"; then
+                echo "Unexpected instance lock for -all"
+                exit 1
+            fi
+
+            echo "unscoped actions verified"
+        '
+
+    assert_success
+    assert_output --partial "unscoped actions verified"
+}

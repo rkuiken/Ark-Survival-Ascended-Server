@@ -37,7 +37,7 @@ load '../test_helper/project.bash'
             printf "locks=%s\n" "${#POK_MANAGER_LOCK_FDS[@]}"
             manager_lock_release_all
         '
-    
+
     assert_success
     assert_output --partial "locks=1"
 
@@ -66,7 +66,7 @@ load '../test_helper/project.bash'
                 touch "$POK_MANAGER_LOCK_DIR/holder-ready"
                 sleep 30
             ) &
-            
+
             holder_pid=$!
             trap "kill $holder_pid 2>/dev/null || true; wait $holder_pid 2>/dev/null || true" EXIT
 
@@ -85,4 +85,20 @@ load '../test_helper/project.bash'
         '
     assert_success
     assert_output --partial "Manager operation blocked: lock 'instance-demo' is already held."
+}
+
+@test "POK-manager loads the lock helper when BASE_DIR is overridden" {
+    run env REPO_ROOT="$PROJECT_ROOT" \
+        BASE_DIR="$BATS_TEST_TMPDIR/manager-base" \
+        POK_MANAGER_TEST_MODE=1 bash -lc '
+            set -e
+            source "$REPO_ROOT/POK-manager.sh"
+
+            declare -F manager_lock_acquire >/dev/null
+            declare -F manager_lock_release_all >/dev/null
+
+            echo "lock helper loaded"
+        '
+    assert_success
+    assert_output --partial "lock helper loaded"
 }

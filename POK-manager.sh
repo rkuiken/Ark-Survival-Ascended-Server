@@ -12,6 +12,18 @@ else
 fi
 POK_MANAGER_SCRIPT_PATH="${POK_MANAGER_SCRIPT_PATH:-$(readlink -f "${BASH_SOURCE[0]}")}"
 
+POK_MANAGER_LOCK_HELPER="$(dirname "$POK_MANAGER_SCRIPT_PATH")/scripts/manager_lock.sh"
+
+if [ ! -r "$POK_MANAGER_LOCK_HELPER" ]; then
+  echo "Manager lock error: cannot read $POK_MANAGER_LOCK_HELPER." >&2
+  return 1 2>/dev/null || exit 1
+fi
+
+if ! source "$POK_MANAGER_LOCK_HELPER"; then
+  echo "Manager lock error: failed to load $POK_MANAGER_LOCK_HELPER." >&2
+  return 1 2>/dev/null || exit 1
+fi
+
 PATH_CONFIG_FILE=""
 LAST_VERSION_FILE=""
 POK_MANAGER_INITIALIZED=0
@@ -10007,5 +10019,6 @@ display_changelog() {
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" && "${POK_MANAGER_TEST_MODE:-}" != "1" ]]; then
+  trap manager_lock_release_all EXIT
   main "$@"
 fi

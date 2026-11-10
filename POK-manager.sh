@@ -8990,6 +8990,25 @@ _main_action_is_valid() {
   return 1
 }
 
+_main_instance_lock_scope_for_action() {
+  local action="$1"
+  local instance_name="$2"
+
+  if [ -z "$instance_name" ] || [ "$instance_name" = "-all" ]; then
+    return 1
+  fi
+
+  case "$action" in
+  -start|-stop|-saveworld|-shutdown|-restart|-chat|-custom|-backup|-delete|-restore|-clearupdateflag|-API)
+    printf 'instance-%s\n' "$instance_name"
+    return 0
+    ;;
+  *)
+    return 1
+    ;;
+  esac
+}
+
 _main_handle_meta_action() {
   local action="$1"
 

@@ -15,6 +15,7 @@
 !/scripts/health_probe.sh
 !/scripts/health_server.py
 !/scripts/rollback_server.sh
+!/scripts/manager_lock.sh
 !/scripts/monitor_health.sh
 !/scripts/update_coordination.sh
 !/scripts/update_notice_monitor.sh

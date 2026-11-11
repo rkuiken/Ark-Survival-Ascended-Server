@@ -9013,6 +9013,29 @@ _main_instance_lock_scope_for_action() {
   esac
 }
 
+_main_global_lock_mode_for_action() {
+  local action="$1"
+  local instance_name="${2:-}"
+
+  case "$action" in
+  -start|-stop|-saveworld|-shutdown|-restart|-chat|-custom|-backup|-delete|-restore|-clearupdateflag|-API)
+    if [ -z "$instance_name" ] || [ "$instance_name" = "-all" ]; then
+      printf '%s\n' "exclusive"
+    else
+      printf '%s\n' "shared"
+    fi
+    return 0
+    ;;
+  -setup|-create|-rollback|-update|-fix|-rename|-edit|-beta|-stable|-upgrade|-migrate|-force-restore|-emergency-restore|-api-recovery)
+    printf '%s\n' "exclusive"
+    return 0
+    ;;
+  *)
+    return 1
+    ;;
+  esac
+}
+
 _manage_service_acquire_instance_lock() {
   local action="$1"
   local instance_name="$2"

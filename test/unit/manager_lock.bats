@@ -377,3 +377,98 @@ load '../test_helper/project.bash'
     assert_output --partial "second shared lock acquired"
     assert_output --partial "exclusive lock blocked"
 }
+
+@test "main assigns shared global locks to single-instance mutations" {
+    run env REPO_ROOT="$PROJECT_ROOT" \
+        BASE_DIR="$BATS_TEST_TMPDIR/manager-base" \
+        POK_MANAGER_TEST_MODE=1 bash -lc '
+            set -e
+            source "$REPO_ROOT/POK-manager.sh"
+
+            actions=(
+                -start
+                -stop
+                -saveworld
+                -shutdown
+                -restart
+                -chat
+                -custom
+                -backup
+                -delete
+                -restore
+                -clearupdateflag
+                -API
+            )
+
+            for action in "${actions[@]}"; do
+                mode="$(_main_global_lock_mode_for_action "$action" "demo")"
+                if [ "$mode" != "shared" ]; then
+                    echo "Unexpected global mode for $action: $mode"
+                    exit 1
+                fi
+            done
+
+            all_mode="$(_main_global_lock_mode_for_action "-start" "-all")"
+            empty_mode="$(_main_global_lock_mode_for_action "-backup" "")"
+
+            printf "all=%s empty=%s\n" "$all_mode" "$empty_mode"
+        '
+
+    assert_success
+    assert_output --partial "all=exclusive empty=exclusive"
+}
+
+@test "main assigns exclusive global locks only to shared-resource actions" {
+    run env REPO_ROOT="$PROJECT_ROOT" \
+        BASE_DIR="$BATS_TEST_TMPDIR/manager-base" \
+        POK_MANAGER_TEST_MODE=1 bash -lc '
+            set -e
+            source "$REPO_ROOT/POK-manager.sh"
+
+            global_actions=(
+                -setup
+                -create
+                -rollback
+                -update
+                -fix
+                -rename
+                -edit
+                -beta
+                -stable
+                -upgrade
+                -migrate
+                -force-restore
+                -emergency-restore
+                -api-recovery
+            )
+
+            for action in "${global_actions[@]}"; do
+                mode="$(_main_global_lock_mode_for_action "$action" "demo")"
+                if [ "$mode" != "exclusive" ]; then
+                    echo "Unexpected global mode for $action: $mode"
+                    exit 1
+                fi
+            done
+
+            read_only_actions=(
+                -list
+                -status
+                -logs
+                -version
+                -changelog
+                -validate_update
+            )
+
+            for action in "${read_only_actions[@]}"; do
+                if _main_global_lock_mode_for_action "$action" "demo"; then
+                    echo "Unexpected global lock for $action"
+                    exit 1
+                fi
+            done
+
+            echo "global and read-only actions verified"
+        '
+
+    assert_success
+    assert_output --partial "global and read-only actions verified"
+}

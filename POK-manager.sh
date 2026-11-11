@@ -7178,6 +7178,10 @@ manage_service() {
   local additional_args=("$@")
   local additional_args_string="$*"
 
+  if ! _manage_service_acquire_instance_lock "$action" "$instance_name" "$additional_args_string"; then
+    return 1
+  fi
+
   if [[ "$action" == "-setup" ]]; then
     check_puid_pgid_user "$PUID" "$PGID"
   fi

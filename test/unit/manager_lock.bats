@@ -235,3 +235,93 @@ load '../test_helper/project.bash'
     assert_success
     assert_output --partial "acquisition calls=1"
 }
+
+@test "manage_service acquires the instance lock before dispatch" {
+    run env REPO_ROOT="$PROJECT_ROOT" \
+        BASE_DIR="$BATS_TEST_TMPDIR/manager-base" \
+        POK_MANAGER_TEST_MODE=1 bash -lc '
+            set -e
+            source "$REPO_ROOT/POK-manager.sh"
+
+            events=()
+
+            get_docker_compose_cmd() {
+                :
+            }
+
+            manager_lock_acquire() {
+                events+=("lock:$1")
+            }
+
+            _manage_service_requires_docker_permissions() {
+                return 1
+            }
+
+            _manage_service_handle_all_instance_shortcut() {
+                return 1
+            }
+
+            start_instance() {
+                events+=("start:$1:$2")
+            }
+
+            manage_service "-start" "demo"
+
+            test "${events[0]}" = "lock:instance-demo"
+            test "${events[1]}" = "start:demo:promote_single"
+            printf "%s\n" "${events[@]}"
+        '
+
+    assert_success
+    assert_output --partial "lock:instance-demo"
+    assert_output --partial "start:demo:promote_single"
+}
+
+@test "manage_service stops before side effects when the instance lock is blocked" {
+    run env REPO_ROOT="$PROJECT_ROOT" \
+        BASE_DIR="$BATS_TEST_TMPDIR/manager-base" \
+        POK_MANAGER_TEST_MODE=1 bash -lc '
+            set -e
+            source "$REPO_ROOT/POK-manager.sh"
+
+            side_effects=0
+
+            get_docker_compose_cmd() {
+                :
+            }
+
+            manager_lock_acquire() {
+                return 1
+            }
+
+            _manage_service_requires_docker_permissions() {
+                side_effects=$((side_effects + 1))
+                return 0
+            }
+
+            adjust_docker_permissions() {
+                side_effects=$((side_effects + 1))
+            }
+
+            _manage_service_handle_all_instance_shortcut() {
+                side_effects=$((side_effects + 1))
+                return 1
+            }
+
+            start_instance() {
+                side_effects=$((side_effects + 1))
+                echo "start dispatched"
+            }
+
+            if manage_service "-start" "demo"; then
+                echo "Blocked command unexpectedly succeeded"
+                exit 1
+            fi
+
+            printf "side effects=%s\n" "$side_effects"
+        '
+
+    assert_success
+    assert_output --partial "side effects=0"
+    refute_output --partial "start dispatched"
+}

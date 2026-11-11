@@ -7178,7 +7178,7 @@ manage_service() {
   local additional_args=("$@")
   local additional_args_string="$*"
 
-  if ! _manage_service_acquire_instance_lock "$action" "$instance_name" "$additional_args_string"; then
+  if ! _manage_service_acquire_action_locks "$action" "$instance_name" "$additional_args_string"; then
     return 1
   fi
 
@@ -9036,11 +9036,12 @@ _main_global_lock_mode_for_action() {
   esac
 }
 
-_manage_service_acquire_instance_lock() {
+_manage_service_acquire_action_locks() {
   local action="$1"
   local instance_name="$2"
   local additional_args_string="${3:-}"
-  local lock_scope
+  local global_lock_mode
+  local instance_lock_scope
 
   case "$action" in
   -chat|-custom|-API)
@@ -9048,11 +9049,19 @@ _manage_service_acquire_instance_lock() {
     ;;
   esac
 
-  if ! lock_scope="$(_main_instance_lock_scope_for_action "$action" "$instance_name")"; then
-    return 0
+  if global_lock_mode="$(_main_global_lock_mode_for_action "$action" "$instance_name")"; then
+    if ! manager_lock_acquire "manager-global" 0 "$global_lock_mode"; then
+      return 1
+    fi
   fi
 
-  manager_lock_acquire "$lock_scope"
+  if instance_lock_scope="$(_main_instance_lock_scope_for_action "$action" "$instance_name")"; then
+    if ! manager_lock_acquire "$instance_lock_scope"; then
+      return 1
+    fi
+  fi
+
+  return 0
 }
 
 _main_handle_meta_action() {

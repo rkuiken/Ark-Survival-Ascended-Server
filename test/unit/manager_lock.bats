@@ -178,65 +178,89 @@ load '../test_helper/project.bash'
     assert_output --partial "unscoped actions verified"
 }
 
-@test "manage service lock helper normalizes rearranged instance arguments" {
+@test "manage service lock helper normalizes arguments and acquires global before instance" {
     run env REPO_ROOT="$PROJECT_ROOT" \
         BASE_DIR="$BATS_TEST_TMPDIR/manager-base" \
         POK_MANAGER_TEST_MODE=1 bash -lc '
             set -e
             source "$REPO_ROOT/POK-manager.sh"
 
-            acquired_scopes=()
+            acquired_locks=()
             manager_lock_acquire() {
-                acquired_scopes+=("$1")
+                local scope="$1"
+                local mode="${3:-exclusive}"
+                acquired_locks+=("${scope}:${mode}")
             }
 
-            _manage_service_acquire_instance_lock "-start" "demo" ""
-            _manage_service_acquire_instance_lock "-chat" "Server restarting" "demo"
-            _manage_service_acquire_instance_lock "-custom" "listplayers" "demo"
-            _manage_service_acquire_instance_lock "-API" "TRUE" "demo"
+            _manage_service_acquire_action_locks "-start" "demo" ""
+            _manage_service_acquire_action_locks "-chat" "Server restarting" "demo"
+            _manage_service_acquire_action_locks "-custom" "listplayers" "demo"
+            _manage_service_acquire_action_locks "-API" "TRUE" "demo"
 
-            for scope in "${acquired_scopes[@]}"; do
-                if [ "$scope" != "instance-demo" ]; then
-                    echo "Unexpected lock scope: $scope"
+            expected_locks=(
+                "manager-global:shared"
+                "instance-demo:exclusive"
+                "manager-global:shared"
+                "instance-demo:exclusive"
+                "manager-global:shared"
+                "instance-demo:exclusive"
+                "manager-global:shared"
+                "instance-demo:exclusive"
+            )
+
+            test "${#acquired_locks[@]}" -eq "${#expected_locks[@]}"
+
+            for index in "${!expected_locks[@]}"; do
+                if [ "${acquired_locks[$index]}" != "${expected_locks[$index]}" ]; then
+                    echo "Unexpected lock at index $index: ${acquired_locks[$index]}"
                     exit 1
                 fi
             done
 
-            printf "acquired=%s\n" "${#acquired_scopes[@]}"
+            printf "%s\n" "${acquired_locks[@]}"
         '
     assert_success
-    assert_output --partial "acquired=4"
+    assert_output --partial "manager-global:shared"
+    assert_output --partial "instance-demo:exclusive"
 }
 
-@test "manage service lock helper skips unscoped actions and propagates contention" {
+@test "manage service lock helper skips unscoped actions and propagates instance contention" {
     run env REPO_ROOT="$PROJECT_ROOT" \
         BASE_DIR="$BATS_TEST_TMPDIR/manager-base" \
         POK_MANAGER_TEST_MODE=1 bash -lc '
             set -e
             source "$REPO_ROOT/POK-manager.sh"
 
-            acquisition_calls=0
+            acquisition_calls=()
             manager_lock_acquire() {
-                acquisition_calls=$((acquisition_calls + 1))
-                return 1
+                local scope="$1"
+                local mode="${3:-exclusive}"
+
+                acquisition_calls+=("${scope}:${mode}")
+
+                if [ "$scope" = "instance-demo" ]; then
+                    return 1
+                fi
+
+                return 0
             }
 
-            _manage_service_acquire_instance_lock "-status" "demo" ""
-            _manage_service_acquire_instance_lock "-start" "-all" ""
+            _manage_service_acquire_action_locks "-status" "demo" ""
 
-            if _manage_service_acquire_instance_lock "-start" "demo" ""; then
-                echo "Lock contention was not propagated"
+            if _manage_service_acquire_action_locks "-start" "demo" ""; then
+                echo "lock contention was not propagated"
                 exit 1
             fi
 
-            printf "acquisition calls=%s\n" "$acquisition_calls"
+            printf "%s\n" "${acquisition_calls[@]}"
         '
 
     assert_success
-    assert_output --partial "acquisition calls=1"
+    assert_output --partial "manager-global:shared"
+    assert_output --partial "instance-demo:exclusive"
 }
 
-@test "manage_service acquires the instance lock before dispatch" {
+@test "manage_service acquires global and instance locks before dispatch" {
     run env REPO_ROOT="$PROJECT_ROOT" \
         BASE_DIR="$BATS_TEST_TMPDIR/manager-base" \
         POK_MANAGER_TEST_MODE=1 bash -lc '
@@ -250,7 +274,7 @@ load '../test_helper/project.bash'
             }
 
             manager_lock_acquire() {
-                events+=("lock:$1")
+                events+=("lock:$1:${3:-exclusive}")
             }
 
             _manage_service_requires_docker_permissions() {
@@ -267,13 +291,15 @@ load '../test_helper/project.bash'
 
             manage_service "-start" "demo"
 
-            test "${events[0]}" = "lock:instance-demo"
-            test "${events[1]}" = "start:demo:promote_single"
+            test "${events[0]}" = "lock:manager-global:shared"
+            test "${events[1]}" = "lock:instance-demo:exclusive"
+            test "${events[2]}" = "start:demo:promote_single"
             printf "%s\n" "${events[@]}"
         '
 
     assert_success
-    assert_output --partial "lock:instance-demo"
+    assert_output --partial "lock:manager-global:shared"
+    assert_output --partial "lock:instance-demo:exclusive"
     assert_output --partial "start:demo:promote_single"
 }
 
@@ -291,7 +317,10 @@ load '../test_helper/project.bash'
             }
 
             manager_lock_acquire() {
-                return 1
+                if [ "$1" = "instance-demo" ]; then
+                    return 1
+                fi
+                return 0
             }
 
             _manage_service_requires_docker_permissions() {

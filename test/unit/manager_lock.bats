@@ -325,3 +325,55 @@ load '../test_helper/project.bash'
     assert_output --partial "side effects=0"
     refute_output --partial "start dispatched"
 }
+
+@test "manager lock rejects an invalid lock mode" {
+    run env REPO_ROOT="$PROJECT_ROOT" \
+        POK_MANAGER_LOCK_DIR="$BATS_TEST_TMPDIR/locks" bash -lc '
+            source "$REPO_ROOT/scripts/manager_lock.sh"
+            manager_lock_acquire "manager-global" 0 "invalid"
+        '
+
+    assert_failure
+    assert_output --partial "Manager lock error: mode must be 'shared' or 'exclusive'."
+}
+
+@test "manager lock allows concurrent shared holders and blocks an exclusive holder" {
+    run env REPO_ROOT="$PROJECT_ROOT" \
+        POK_MANAGER_LOCK_DIR="$BATS_TEST_TMPDIR/locks" bash -lc '
+            set -e
+            mkdir -p "$POK_MANAGER_LOCK_DIR"
+
+            (
+                exec 9>>"$POK_MANAGER_LOCK_DIR/manager-global.lock"
+                flock -s 9
+                touch "$POK_MANAGER_LOCK_DIR/shared-holder-ready"
+                sleep 30
+            ) &
+
+            holder_pid=$!
+            trap "kill $holder_pid 2>/dev/null || true; wait $holder_pid 2>/dev/null || true" EXIT
+
+            for attempt in {1..100}; do
+                [ -f "$POK_MANAGER_LOCK_DIR/shared-holder-ready" ] && break
+                sleep 0.02
+            done
+
+            test -f "$POK_MANAGER_LOCK_DIR/shared-holder-ready"
+            source "$REPO_ROOT/scripts/manager_lock.sh"
+
+            manager_lock_acquire "manager-global" 0 "shared"
+            echo "second shared lock acquired"
+            manager_lock_release_all
+
+            if manager_lock_acquire "manager-global" 0 "exclusive"; then
+                echo "Exclusive lock unexpectedly succeeded"
+                exit 1
+            fi
+
+            echo "exclusive lock blocked"
+        '
+
+    assert_success
+    assert_output --partial "second shared lock acquired"
+    assert_output --partial "exclusive lock blocked"
+}

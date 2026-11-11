@@ -48,6 +48,8 @@ _manager_lock_scope_is_held() {
 manager_lock_acquire() {
     local scope="${1:-}"
     local wait_seconds="${2:-0}"
+    local lock_mode="${3:-exclusive}"
+    local flock_mode_option
     local lock_directory
     local lock_path
     local lock_fd
@@ -67,6 +69,19 @@ manager_lock_acquire() {
         return 1
     fi
 
+    case "$lock_mode" in
+        shared)
+            flock_mode_option="-s"
+            ;;
+        exclusive)
+            flock_mode_option="-x"
+            ;;
+        *)
+            echo "Manager lock error: mode must be 'shared' or 'exclusive'." >&2
+            return 1
+            ;;
+    esac
+
     if _manager_lock_scope_is_held "$scope"; then
         return 0
     fi
@@ -84,12 +99,12 @@ manager_lock_acquire() {
     }
 
     if [ "$wait_seconds" -eq 0 ]; then
-        if ! flock -n "$lock_fd"; then
+        if ! flock "$flock_mode_option" -n "$lock_fd"; then
             echo "Manager operation blocked: lock '$scope' is already held." >&2
             exec {lock_fd}>&-
             return 1
         fi
-    elif ! flock -w "$wait_seconds" "$lock_fd"; then
+    elif ! flock "$flock_mode_option" -w "$wait_seconds" "$lock_fd"; then
         echo "Manager operation timed out waiting for lock '$scope'." >&2
         exec {lock_fd}>&-
         return 1
